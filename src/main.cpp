@@ -4,6 +4,7 @@
 #include "geometrycentral/surface/mesh_graph_algorithms.h"
 #include "geometrycentral/surface/meshio.h"
 #include "geometrycentral/surface/polygon_soup_mesh.h"
+#include "geometrycentral/surface/surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include "geometrycentral/utilities/timing.h"
 
@@ -98,17 +99,21 @@ void createPathFromPoints() {
     }
     edgeNetwork->posGeom = geometry.get();
 
-    // CHANGED: write to file
+    // MY CODE: write to file
     std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
     std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
+    int idx = 0;
     for (size_t i = 0; i < int_path.size(); i++) {
         myfile << "n\n";
         for (size_t j = 0; j < int_path[i].size(); j++) {
             SurfacePoint pt = int_path[i][j];
             myfile << "v " << pt.vertex.getIndex();
+            // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will be a
+            // repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
             if (j < int_path[i].size() - 1) {
-                myfile << "\n";
+                myfile << "l " << idx << " " << idx + 1 << "\n";
             }
+            idx++;
         }
     }
     myfile.close();
@@ -421,21 +426,28 @@ void locallyShorten() {
 
     updatePathViz();
 
-    // CHANGED: write to file
+    // MY CODE: write to file
     std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
     std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
+    int idx = 0;
     for (size_t i = 0; i < int_path.size(); i++) {
         myfile << "n\n";
         for (size_t j = 0; j < int_path[i].size(); j++) {
             SurfacePoint pt = int_path[i][j];
             if (pt.type == SurfacePointType::Vertex) {
-                myfile << "v " << pt.vertex.getIndex();
+                myfile << "v " << pt.vertex.getIndex() << "\n";
             } else if (pt.type == SurfacePointType::Edge) {
-                myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge;
+                myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
+            } else if (pt.type == SurfacePointType::Face) {
+                myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1] << " "
+                       << pt.faceCoords[2] << "\n";
             }
+            // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will be a
+            // repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
             if (j < int_path[i].size() - 1) {
-                myfile << "\n";
+                myfile << "l " << idx << " " << idx + 1 << "\n";
             }
+            idx++;
         }
     }
     myfile.close();
