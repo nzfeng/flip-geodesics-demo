@@ -46,6 +46,8 @@ float refineAreaThresh = std::numeric_limits<float>::infinity();
 float refineAngleThresh = 25.;
 int maxInsertions = -1;
 
+int OFFSET_IDX = 0;
+
 // ====== Path related stuff
 
 void updatePathViz() {
@@ -107,11 +109,11 @@ void createPathFromPoints() {
         myfile << "n\n";
         for (size_t j = 0; j < int_path[i].size(); j++) {
             SurfacePoint pt = int_path[i][j];
-            myfile << "v " << pt.vertex.getIndex();
+            myfile << "v " << pt.vertex.getIndex() << "\n";
             // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will be a
             // repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
             if (j < int_path[i].size() - 1) {
-                myfile << "l " << idx << " " << idx + 1 << "\n";
+                myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
             }
             idx++;
         }
@@ -445,7 +447,7 @@ void locallyShorten() {
             // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will be a
             // repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
             if (j < int_path[i].size() - 1) {
-                myfile << "l " << idx << " " << idx + 1 << "\n";
+                myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
             }
             idx++;
         }
@@ -542,6 +544,30 @@ void buildFancyPathUI() {
 
 // A user-defined callback, for creating control panels (etc)
 void myCallback() {
+
+    // my code
+    if (ImGui::Button("Export OBJ")) {
+
+        // Center
+        Vector3 c = {0, 0, 0};
+        for (Vertex v : mesh->vertices()) {
+            c += geometry->inputVertexPositions[v];
+        }
+        c /= mesh->nVertices();
+
+        // Unit scale
+        double scale = 0.0;
+        for (Vertex v : mesh->vertices()) {
+            geometry->inputVertexPositions[v] -= c;
+            scale = std::max(scale, geometry->inputVertexPositions[v].norm());
+        }
+
+        for (Vertex v : mesh->vertices()) {
+            geometry->inputVertexPositions[v] /= scale;
+        }
+
+        writeSurfaceMesh(*mesh, *geometry, "my_mesh.obj");
+    }
 
     ImGui::TextUnformatted("Input");
 
@@ -657,6 +683,8 @@ void myCallback() {
     }
 
     ImGui::PopItemWidth();
+
+    ImGui::InputInt("Offset idx", &OFFSET_IDX);
 }
 
 int main(int argc, char** argv) {
