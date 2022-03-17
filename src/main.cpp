@@ -46,6 +46,12 @@ float refineAreaThresh = std::numeric_limits<float>::infinity();
 float refineAngleThresh = 25.;
 int maxInsertions = -1;
 
+// Fancy path construction
+bool fancyPathClosed = false;
+std::vector<Vertex> fancyPathVerts;
+std::vector<std::pair<size_t, int>> fancyPathVertsPs;
+VertexData<double> fancyPathVertexNumbers;
+bool fancyPathMarkVerts = false;
 int OFFSET_IDX = 0;
 
 // ====== Path related stuff
@@ -104,18 +110,37 @@ void createPathFromPoints() {
     // MY CODE: write to file
     std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
     std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
-    int idx = 0;
-    for (size_t i = 0; i < int_path.size(); i++) {
-        myfile << "n\n";
-        for (size_t j = 0; j < int_path[i].size(); j++) {
-            SurfacePoint pt = int_path[i][j];
-            myfile << "v " << pt.vertex.getIndex() << "\n";
-            // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will be a
-            // repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
-            if (j < int_path[i].size() - 1) {
-                myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
+    if (!fancyPathClosed) {
+        int idx = 0;
+        for (size_t i = 0; i < int_path.size(); i++) {
+            myfile << "n\n";
+            for (size_t j = 0; j < int_path[i].size(); j++) {
+                SurfacePoint pt = int_path[i][j];
+                myfile << "v " << pt.vertex.getIndex() << "\n";
+                // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will
+                // be a repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
+                if (j < int_path[i].size() - 1) {
+                    myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
+                }
+                idx++;
             }
-            idx++;
+        }
+    } else {
+        int idx = 0;
+        assert(int_path.size() == 1);
+        for (size_t i = 0; i < int_path.size(); i++) {
+            myfile << "n\n";
+            size_t N = int_path[i].size();
+            for (size_t j = 0; j < N; j++) {
+                SurfacePoint pt = int_path[i][j % (N - 1)];
+                if (j % (N - 1) == j) {
+                    myfile << "v " << pt.vertex.getIndex() << "\n";
+                }
+
+                if (j < int_path[i].size() - 1) {
+                    myfile << "l " << j + OFFSET_IDX << " " << (j + 1) % (N - 1) + OFFSET_IDX << "\n";
+                }
+            }
         }
     }
     myfile.close();
@@ -431,28 +456,53 @@ void locallyShorten() {
     // MY CODE: write to file
     std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
     std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
-    int idx = 0;
-    for (size_t i = 0; i < int_path.size(); i++) {
-        myfile << "n\n";
-        for (size_t j = 0; j < int_path[i].size(); j++) {
-            SurfacePoint pt = int_path[i][j];
-            if (pt.type == SurfacePointType::Vertex) {
-                myfile << "v " << pt.vertex.getIndex() << "\n";
-            } else if (pt.type == SurfacePointType::Edge) {
-                myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
-            } else if (pt.type == SurfacePointType::Face) {
-                myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1] << " "
-                       << pt.faceCoords[2] << "\n";
+    if (!fancyPathClosed) {
+        int idx = 0;
+        for (size_t i = 0; i < int_path.size(); i++) {
+            myfile << "n\n";
+            for (size_t j = 0; j < int_path[i].size(); j++) {
+                SurfacePoint pt = int_path[i][j];
+                if (pt.type == SurfacePointType::Vertex) {
+                    myfile << "v " << pt.vertex.getIndex() << "\n";
+                } else if (pt.type == SurfacePointType::Edge) {
+                    myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
+                } else if (pt.type == SurfacePointType::Face) {
+                    myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1] << " "
+                           << pt.faceCoords[2] << "\n";
+                }
+                // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will
+                // be a repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
+                if (j < int_path[i].size() - 1) {
+                    myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
+                }
+                idx++;
             }
-            // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will be a
-            // repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
-            if (j < int_path[i].size() - 1) {
-                myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
-            }
-            idx++;
         }
+    } else {
+        int idx = 0;
+        assert(int_path.size() == 1);
+        for (size_t i = 0; i < int_path.size(); i++) {
+            myfile << "n\n";
+            size_t N = int_path[i].size();
+            for (size_t j = 0; j < N; j++) {
+                SurfacePoint pt = int_path[i][j % (N - 1)];
+                if (j % (N - 1) == j) {
+                    if (pt.type == SurfacePointType::Vertex) {
+                        myfile << "v " << pt.vertex.getIndex() << "\n";
+                    } else if (pt.type == SurfacePointType::Edge) {
+                        myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
+                    } else if (pt.type == SurfacePointType::Face) {
+                        myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1]
+                               << " " << pt.faceCoords[2] << "\n";
+                    }
+                }
+                if (j < int_path[i].size() - 1) {
+                    myfile << "l " << j + OFFSET_IDX << " " << (j + 1) % (N - 1) + OFFSET_IDX << "\n";
+                }
+            }
+        }
+        myfile.close();
     }
-    myfile.close();
 }
 
 void bezierSubdivide() {
@@ -498,12 +548,7 @@ void exportPathLines() {
     edgeNetwork->savePathOBJLine("");
 }
 
-// Fancy path construction
-bool fancyPathClosed = false;
-std::vector<Vertex> fancyPathVerts;
-std::vector<std::pair<size_t, int>> fancyPathVertsPs;
-VertexData<double> fancyPathVertexNumbers;
-bool fancyPathMarkVerts = false;
+
 void buildFancyPathUI() {
 
     auto updateFancyPathViz = [&]() { psMesh->addVertexCountQuantity("fancy path vertices", fancyPathVertsPs); };
