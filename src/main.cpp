@@ -53,6 +53,7 @@ std::vector<std::pair<size_t, int>> fancyPathVertsPs;
 VertexData<double> fancyPathVertexNumbers;
 bool fancyPathMarkVerts = false;
 int OFFSET_IDX = 0;
+bool SEQUENCE_OF_NODES = false;
 
 // ====== Path related stuff
 
@@ -108,42 +109,67 @@ void createPathFromPoints() {
     edgeNetwork->posGeom = geometry.get();
 
     // MY CODE: write to file
-    std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
-    std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
-    if (!fancyPathClosed) {
-        int idx = 0;
-        for (size_t i = 0; i < int_path.size(); i++) {
-            myfile << "n\n";
-            for (size_t j = 0; j < int_path[i].size(); j++) {
-                SurfacePoint pt = int_path[i][j];
-                myfile << "v " << pt.vertex.getIndex() << "\n";
-                // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will
-                // be a repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
-                if (j < int_path[i].size() - 1) {
-                    myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
+    if (!SEQUENCE_OF_NODES) {
+        std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
+        std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
+        if (!fancyPathClosed) {
+            int idx = 0;
+            for (size_t i = 0; i < int_path.size(); i++) {
+                myfile << "n\n";
+                for (size_t j = 0; j < int_path[i].size(); j++) {
+                    SurfacePoint pt = int_path[i][j];
+                    myfile << "v " << pt.vertex.getIndex() << "\n";
+                    // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it
+                    // will be a repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th
+                    // index.
+                    if (j < int_path[i].size() - 1) {
+                        myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
+                    }
+                    idx++;
                 }
-                idx++;
+            }
+        } else {
+            int idx = 0;
+            assert(int_path.size() == 1);
+            for (size_t i = 0; i < int_path.size(); i++) {
+                myfile << "n\n";
+                size_t N = int_path[i].size();
+                for (size_t j = 0; j < N; j++) {
+                    SurfacePoint pt = int_path[i][j % (N - 1)];
+                    if (j % (N - 1) == j) {
+                        myfile << "v " << pt.vertex.getIndex() << "\n";
+                    }
+
+                    if (j < int_path[i].size() - 1) {
+                        myfile << "l " << j + OFFSET_IDX << " " << (j + 1) % (N - 1) + OFFSET_IDX << "\n";
+                    }
+                }
             }
         }
+        myfile.close();
     } else {
-        int idx = 0;
-        assert(int_path.size() == 1);
+        // Output curve as a sequence of (unique) surface points
+        std::ofstream myfile("../../contact-parameterization/data/curve.txt");
+        std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
+
         for (size_t i = 0; i < int_path.size(); i++) {
             myfile << "n\n";
             size_t N = int_path[i].size();
+            if (fancyPathClosed) N -= 1;
             for (size_t j = 0; j < N; j++) {
-                SurfacePoint pt = int_path[i][j % (N - 1)];
-                if (j % (N - 1) == j) {
+                SurfacePoint pt = int_path[i][j];
+                if (pt.type == SurfacePointType::Vertex) {
                     myfile << "v " << pt.vertex.getIndex() << "\n";
-                }
-
-                if (j < int_path[i].size() - 1) {
-                    myfile << "l " << j + OFFSET_IDX << " " << (j + 1) % (N - 1) + OFFSET_IDX << "\n";
+                } else if (pt.type == SurfacePointType::Edge) {
+                    myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
+                } else if (pt.type == SurfacePointType::Face) {
+                    myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1] << " "
+                           << pt.faceCoords[2] << "\n";
                 }
             }
         }
+        myfile.close();
     }
-    myfile.close();
 
     updatePathViz();
 }
@@ -454,39 +480,15 @@ void locallyShorten() {
     updatePathViz();
 
     // MY CODE: write to file
-    std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
-    std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
-    if (!fancyPathClosed) {
-        int idx = 0;
-        for (size_t i = 0; i < int_path.size(); i++) {
-            myfile << "n\n";
-            for (size_t j = 0; j < int_path[i].size(); j++) {
-                SurfacePoint pt = int_path[i][j];
-                if (pt.type == SurfacePointType::Vertex) {
-                    myfile << "v " << pt.vertex.getIndex() << "\n";
-                } else if (pt.type == SurfacePointType::Edge) {
-                    myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
-                } else if (pt.type == SurfacePointType::Face) {
-                    myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1] << " "
-                           << pt.faceCoords[2] << "\n";
-                }
-                // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it will
-                // be a repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th index.
-                if (j < int_path[i].size() - 1) {
-                    myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
-                }
-                idx++;
-            }
-        }
-    } else {
-        int idx = 0;
-        assert(int_path.size() == 1);
-        for (size_t i = 0; i < int_path.size(); i++) {
-            myfile << "n\n";
-            size_t N = int_path[i].size();
-            for (size_t j = 0; j < N; j++) {
-                SurfacePoint pt = int_path[i][j % (N - 1)];
-                if (j % (N - 1) == j) {
+    if (!SEQUENCE_OF_NODES) {
+        std::ofstream myfile("../../sdf-heat-method/data/curve.txt");
+        std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
+        if (!fancyPathClosed) {
+            int idx = 0;
+            for (size_t i = 0; i < int_path.size(); i++) {
+                myfile << "n\n";
+                for (size_t j = 0; j < int_path[i].size(); j++) {
+                    SurfacePoint pt = int_path[i][j];
                     if (pt.type == SurfacePointType::Vertex) {
                         myfile << "v " << pt.vertex.getIndex() << "\n";
                     } else if (pt.type == SurfacePointType::Edge) {
@@ -495,9 +497,58 @@ void locallyShorten() {
                         myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1]
                                << " " << pt.faceCoords[2] << "\n";
                     }
+                    // This code doesn't check if the curve is a loop; if so, delete the last SurfacePoint (because it
+                    // will be a repeat of the 1st) and change the 2nd endpoint of the last line segment to the 0th
+                    // index.
+                    if (j < int_path[i].size() - 1) {
+                        myfile << "l " << idx + OFFSET_IDX << " " << idx + 1 + OFFSET_IDX << "\n";
+                    }
+                    idx++;
                 }
-                if (j < int_path[i].size() - 1) {
-                    myfile << "l " << j + OFFSET_IDX << " " << (j + 1) % (N - 1) + OFFSET_IDX << "\n";
+            }
+        } else {
+            int idx = 0;
+            assert(int_path.size() == 1);
+            for (size_t i = 0; i < int_path.size(); i++) {
+                myfile << "n\n";
+                size_t N = int_path[i].size();
+                for (size_t j = 0; j < N; j++) {
+                    SurfacePoint pt = int_path[i][j % (N - 1)];
+                    if (j % (N - 1) == j) {
+                        if (pt.type == SurfacePointType::Vertex) {
+                            myfile << "v " << pt.vertex.getIndex() << "\n";
+                        } else if (pt.type == SurfacePointType::Edge) {
+                            myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
+                        } else if (pt.type == SurfacePointType::Face) {
+                            myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1]
+                                   << " " << pt.faceCoords[2] << "\n";
+                        }
+                    }
+                    if (j < int_path[i].size() - 1) {
+                        myfile << "l " << j + OFFSET_IDX << " " << (j + 1) % (N - 1) + OFFSET_IDX << "\n";
+                    }
+                }
+            }
+            myfile.close();
+        }
+    } else {
+        // Output curve as a sequence of (unique) surface points
+        std::ofstream myfile("../../contact-parameterization/data/curve.txt");
+        std::vector<std::vector<SurfacePoint>> int_path = edgeNetwork->getPathPolyline();
+
+        for (size_t i = 0; i < int_path.size(); i++) {
+            myfile << "n\n";
+            size_t N = int_path[i].size();
+            if (fancyPathClosed) N -= 1;
+            for (size_t j = 0; j < N; j++) {
+                SurfacePoint pt = int_path[i][j];
+                if (pt.type == SurfacePointType::Vertex) {
+                    myfile << "v " << pt.vertex.getIndex() << "\n";
+                } else if (pt.type == SurfacePointType::Edge) {
+                    myfile << "e " << pt.edge.getIndex() << " " << pt.tEdge << "\n";
+                } else if (pt.type == SurfacePointType::Face) {
+                    myfile << "f " << pt.face.getIndex() << " " << pt.faceCoords[0] << " " << pt.faceCoords[1] << " "
+                           << pt.faceCoords[2] << "\n";
                 }
             }
         }
@@ -730,6 +781,7 @@ void myCallback() {
     ImGui::PopItemWidth();
 
     ImGui::InputInt("Offset idx", &OFFSET_IDX);
+    ImGui::Checkbox("Save as sequence of nodes", &SEQUENCE_OF_NODES);
 }
 
 int main(int argc, char** argv) {
