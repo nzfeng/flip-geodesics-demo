@@ -31,6 +31,10 @@ polyscope::SurfaceMesh* psMesh;
 // An edge network while processing flips
 std::unique_ptr<FlipEdgeNetwork> edgeNetwork;
 
+bool DISPLAY_CURVE = false;
+std::vector<SurfacePoint> curveNodes;
+std::vector<std::vector<std::array<int, 2>>> curveEdges;
+
 // UI parameters
 std::string loadedFilename = "";
 bool withGUI = true;
@@ -58,6 +62,107 @@ bool fancyPathMarkVerts = false;
 int OFFSET_IDX = 0;
 bool SEQUENCE_OF_NODES = false;
 
+
+/*
+ * Read input curve on the surface.
+ * Curve is represented as a series of SurfacePoints; edges are represented as pairs of node indices (this
+ * representation is more convenient for curves with intersections.)
+ */
+void readInputCurves(SurfaceMesh& mesh, const std::string& filename, std::vector<SurfacePoint>& curveNodes,
+                     std::vector<std::vector<std::array<int, 2>>>& curveEdges) {
+
+  std::ifstream curr_file(filename.c_str());
+  std::string line;
+  std::string X;  // re-written variable for holding the leading (indicator) char
+  size_t idx;     // re-written variable for holding element index
+  double tEdge;   // re-written variable for holding halfedge param
+  double a, b, c; // barycentric coords for SurfacePoints within a face
+  SurfacePoint pt;
+  int p1, p2;
+  bool flip;
+  std::vector<bool> flips;
+
+  if (curr_file.is_open()) {
+    while (!curr_file.eof()) {
+      getline(curr_file, line);
+      // Ignore any newlines
+      if (line == "") {
+        continue;
+      }
+      std::istringstream iss(line);
+      iss >> X;
+      if (X == "v") {
+        iss >> idx;
+        pt = SurfacePoint(mesh.vertex(idx));
+        curveNodes.push_back(pt);
+      } else if (X == "e") {
+        iss >> idx >> tEdge;
+        pt = SurfacePoint(mesh.edge(idx), tEdge);
+        curveNodes.push_back(pt);
+      } else if (X == "f") {
+        iss >> idx >> a >> b >> c;
+        Vector3 faceCoords = {a, b, c};
+        pt = SurfacePoint(mesh.face(idx), faceCoords);
+        curveNodes.push_back(pt);
+      } else if (X == "l") {
+        iss >> p1 >> p2;
+        curveEdges[curveEdges.size() - 1].push_back({p1, p2});
+      } else if (X == "n") {
+        iss >> flip; // empty char should be read as false (I think)
+        flips.push_back(flip);
+        curveEdges.push_back(std::vector<std::array<int, 2>>());
+      }
+    }
+    curr_file.close();
+
+    assert(curveEdges.size() == flips.size());
+    for (size_t i = 0; i < flips.size(); i++) {
+      if (!flips[i]) continue;
+      for (size_t j = 0; j < curveEdges[i].size(); j++) {
+        curveEdges[i][j] = {curveEdges[i][j][1], curveEdges[i][j][0]};
+      }
+      std::reverse(curveEdges[i].begin(), curveEdges[i].end());
+    }
+  } else {
+    std::cerr << "Could not open file <" << filename << ">" << std::endl;
+  }
+}
+
+/*
+ * Register input curves as a curve network to display.
+ * This function is for if the curves are defined implicitly via SurfacePoints on a mesh.
+ */
+void displayCurves(VertexPositionGeometry& geometry, polyscope::SurfaceMesh* psMesh,
+                   const std::vector<SurfacePoint>& curveNodes,
+                   const std::vector<std::vector<std::array<int, 2>>>& curveEdges, const std::string& name) {
+
+
+  std::vector<Vector3> positions;
+  std::vector<std::array<int, 2>> edgeInds;
+
+  // Don't render points that aren't used in any edges.
+  for (size_t i = 0; i < curveEdges.size(); i++) {
+    for (size_t j = 0; j < curveEdges[i].size(); j++) {
+      if (curveEdges[i][j][1] != -1) {
+        Vector3 a = curveNodes[curveEdges[i][j][0]].interpolate(geometry.inputVertexPositions);
+        Vector3 b = curveNodes[curveEdges[i][j][1]].interpolate(geometry.inputVertexPositions);
+        positions.push_back(a);
+        positions.push_back(b); // will repeat nodes
+        int n = positions.size();
+        edgeInds.push_back({n - 2, n - 1});
+      } else {
+        Vector3 a = curveNodes[curveEdges[i][j][0]].interpolate(geometry.inputVertexPositions);
+        positions.push_back(a);
+      }
+    }
+  }
+
+  auto pathQ = psMesh->addSurfaceGraphQuantity(name, positions, edgeInds);
+  pathQ->setEnabled(true);
+  pathQ->setColor({0, 0, 0});
+  pathQ->setRadius(0.001);
+}
+
 // ====== Path related stuff
 
 void updatePathViz() {
@@ -68,6 +173,8 @@ void updatePathViz() {
 
   // remove everything
   psMesh->removeAllQuantities();
+
+  if (DISPLAY_CURVE) displayCurves(*geometry, psMesh, curveNodes, curveEdges, "input curves");
 
   auto pathQ = psMesh->addSurfaceGraphQuantity("path edges", edgeNetwork->getPathPolyline3D());
   pathQ->setEnabled(true);
@@ -794,6 +901,8 @@ int main(int argc, char** argv) {
   // Configure the argument parser
   args::ArgumentParser parser("Flip edges to find geodesic paths.");
   args::Positional<std::string> inputFilename(parser, "mesh", "A mesh file.");
+  // optionally display an existing curve
+  args::Positional<std::string> curveFilename(parser, "curve", "A curve file.");
 
   args::Group output(parser, "ouput");
   // args::Flag noGUI(output, "noGUI", "exit after processing and do not open the GUI", {"noGUI"});
@@ -834,6 +943,13 @@ int main(int argc, char** argv) {
     // Register the mesh with polyscope
     psMesh = polyscope::registerSurfaceMesh("input mesh", geometry->inputVertexPositions, mesh->getFaceVertexList(),
                                             polyscopePermutations(*mesh));
+
+    if (curveFilename) {
+      DISPLAY_CURVE = true;
+      std::string curveFilepath = args::get(curveFilename);
+      readInputCurves(*mesh, curveFilepath, curveNodes, curveEdges);
+      displayCurves(*geometry, psMesh, curveNodes, curveEdges, "input curves");
+    }
   }
 
   // Perform any operations requested via command line arguments
